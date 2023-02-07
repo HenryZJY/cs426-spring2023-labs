@@ -1,0 +1,41 @@
+# A1
+
+# A2
+
+# A3
+
+# A4
+
+# A6
+Welcome jz792! The UserId we picked for you is 200033.
+
+2023/02/04 17:53:03 This user has name Franecki6640, their email is izaiahkeeling@schmitt.info, and their profile URL is https://user-service.localhost/profile/200033
+2023/02/04 17:53:03 Recommended videos:
+2023/02/04 17:53:03   [0] Video id=1147, title="Importanceshake: copy", author=Luciano Padberg, url=https://video-data.localhost/blob/1147
+2023/02/04 17:53:03   [1] Video id=1055, title="envious Leeks", author=Wyman Wisoky, url=https://video-data.localhost/blob/1055
+2023/02/04 17:53:03   [2] Video id=1057, title="The lively ant's advice", author=Izaiah Keeling, url=https://video-data.localhost/blob/1057
+2023/02/04 17:53:03   [3] Video id=1003, title="thankful east", author=Andre Kassulke, url=https://video-data.localhost/blob/1003
+2023/02/04 17:53:03   [4] Video id=1024, title="Goldfishbow: generate", author=Lavonne Bergstrom, url=https://video-data.localhost/blob/1024
+
+# A8
+
+# ExtraCredit2
+
+# B2
+go run cmd/loadgen/loadgen.go --target-qps=10
+total_sent:20   total_responses:19      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:112.84
+total_sent:30   total_responses:29      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:101.48
+total_sent:39   total_responses:38      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:106.55
+total_sent:49   total_responses:48      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:115.81
+total_sent:59   total_responses:58      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:118.67
+total_sent:69   total_responses:68      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:121.54
+total_sent:80   total_responses:79      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:121.38
+total_sent:89   total_responses:88      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:122.95
+total_sent:99   total_responses:98      total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:124.32
+total_sent:109  total_responses:108     total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:125.66
+total_sent:119  total_responses:118     total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:125.92
+total_sent:129  total_responses:128     total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:126.76
+total_sent:140  total_responses:138     total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:127.22
+total_sent:149  total_responses:148     total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:127.84
+total_sent:159  total_responses:158     total_errors:0  failure_rate:0.00%      stale_responses:0       avg_latency_ms:128.35
+

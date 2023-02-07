@@ -72,3 +72,91 @@ func TestServerBasic(t *testing.T) {
 	)
 	assert.False(t, err == nil)
 }
+
+func TestUserServiceDown(t *testing.T) {
+	vrOptions := sl.VideoRecServiceOptions{
+		MaxBatchSize:    50,
+		DisableFallback: true,
+		DisableRetry:    true,
+	}
+	// You can specify failure injection options here or later send
+	// SetInjectionConfigRequests using these mock clients
+	uClient :=
+		umc.MakeMockUserServiceClient(*usl.DefaultUserServiceOptions())
+	vClient :=
+		vmc.MakeMockVideoServiceClient(*vsl.DefaultVideoServiceOptions())
+	vrService := sl.MakeVideoRecServiceServerWithMocks(
+		vrOptions,
+		uClient,
+		vClient,
+	)
+
+	var userId uint64 = 204054
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	uClient.SetInjectionConfig(ctx, &fipb.SetInjectionConfigRequest{
+		Config: &fipb.InjectionConfig{
+			// fail one in 1 request, i.e., always fail
+			FailureRate: 1,
+		},
+	})
+	_, err := vrService.GetTopVideos(
+		ctx,
+		&pb.GetTopVideosRequest{UserId: userId, Limit: 5},
+	)
+	assert.False(t, err == nil)
+}
+
+func TestBatch(t *testing.T) {
+	vrOptions := sl.VideoRecServiceOptions{
+		MaxBatchSize:    5,
+		DisableFallback: true,
+		DisableRetry:    true,
+	}
+	uOptions := usl.UserServiceOptions {
+		MaxBatchSize:	5,
+		Seed:                 42,
+		SleepNs:              0,
+		FailureRate:          0,
+		ResponseOmissionRate: 0,
+	}
+	vOptions := vsl.VideoServiceOptions {
+		Seed:                 42,
+		TtlSeconds:           60,
+		SleepNs:              0,
+		FailureRate:          0,
+		ResponseOmissionRate: 0,
+		MaxBatchSize:         5,
+	}
+	// You can specify failure injection options here or later send
+	// SetInjectionConfigRequests using these mock clients
+	uClient :=
+		umc.MakeMockUserServiceClient(uOptions)
+	vClient :=
+		vmc.MakeMockVideoServiceClient(vOptions)
+	vrService := sl.MakeVideoRecServiceServerWithMocks(
+		vrOptions,
+		uClient,
+		vClient,
+	)
+
+	var userId uint64 = 204054
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := vrService.GetTopVideos(
+		ctx,
+		&pb.GetTopVideosRequest{UserId: userId, Limit: 5},
+	)
+	assert.True(t, err == nil)
+
+	videos := out.Videos
+	assert.Equal(t, 5, len(videos))
+	assert.EqualValues(t, 1012, videos[0].VideoId)
+	assert.Equal(t, "Harry Boehm", videos[1].Author)
+	assert.EqualValues(t, 1209, videos[2].VideoId)
+	assert.Equal(t, "https://video-data.localhost/blob/1309", videos[3].Url)
+	assert.Equal(t, "precious here", videos[4].Title)
+}
+
+// TODO: Add 3 more more unit tests for fallback & getstats
