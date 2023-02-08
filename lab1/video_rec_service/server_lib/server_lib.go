@@ -356,12 +356,15 @@ func (server *VideoRecServiceServer) GetStats(
 func fallBack(
 	server *VideoRecServiceServer,
 ) (*pb.GetTopVideosResponse, error) {
-	fmt.Println("FALLBACK")
-	server.fallBackVideos.mu.RLock()
-	defer server.fallBackVideos.mu.RUnlock()
+	fmt.Println("Entering Fallback")
+	server.fallBackVideos.mu.Lock()
+	defer server.fallBackVideos.mu.Unlock()
 
 	if (server.fallBackVideos.videos != nil) && (len(server.fallBackVideos.videos) != 0) {
-		return &pb.GetTopVideosResponse{Videos:server.fallBackVideos.videos}, nil
+		fmt.Println("FALLBACK returning ", len(server.fallBackVideos.videos), " videos")
+		atomic.AddUint64(&server.numStaleResponse, 1)
+		// fmt.Println("WHAT!!!!   ", atomic.LoadUint64(&server.numStaleResponse))
+		return &pb.GetTopVideosResponse{Videos:server.fallBackVideos.videos, StaleResponse:true}, nil
 	} else {
 		log.Printf("Fallback also fails")
 		return nil, status.Error(
@@ -376,7 +379,10 @@ func fetchTrendingVideos (
 ) {
 	// Periodlly fetch trending videos
 	for true {
-		if server.fallBackVideos.expireTime >= time.Now().Unix() {continue}
+		if server.fallBackVideos.expireTime >= time.Now().Unix() {
+			time.Sleep(15 * time.Second)
+			continue
+		}
 		flag.Parse()
 		var opts []grpc.DialOption
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -425,9 +431,10 @@ func fetchTrendingVideos (
 		}
 
 		server.fallBackVideos.mu.Lock()
-		defer server.fallBackVideos.mu.Unlock()
+		fmt.Println("[Trending Videos] Update cache")
 		server.fallBackVideos.videos = video_infos
 		server.fallBackVideos.expireTime = new_expire
+		server.fallBackVideos.mu.Unlock()
 		vconn.Close()
 	}
 }
