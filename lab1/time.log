@@ -13,4 +13,10 @@ Date  Started  Spent    Work completed
 
 I discussed my solutions with Xianglong Li. 
 
-
+Adding codes with the mock user clients and mock video clients was quite cumbersome. 
+Since the mocks and actual clients do not implement the same interface, I had to write
+separate cases for mocks and actual clients, which seems unnecessary only for the 
+purpose of unit testing. The fallback functionality also took much more time than I 
+expected, since I spent quite some effort in debugging. It would be more reasonable to 
+move section C2 to PartA so that I could know the amount of coding required for fallback
+as well as write some simple test cases to make debugging easier. 
