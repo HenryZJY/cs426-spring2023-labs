@@ -7,6 +7,7 @@ import (
 	"sort"
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,12 @@ type VideoRecServiceOptions struct {
 	DisableRetry bool
 }
 
+type trendingVideos struct {
+	videos []*vpb.VideoInfo
+	mu sync.RWMutex
+	expireTime int64
+}
+
 type VideoRecServiceServer struct {
 	pb.UnimplementedVideoRecServiceServer
 	options VideoRecServiceOptions
@@ -45,10 +52,12 @@ type VideoRecServiceServer struct {
 	mockVideoServiceClient *vmc.MockVideoServiceClient
 	numTopVideoRequests uint64
 	numTopVideoErrs uint64
-	numActiveRequests uint64
+	numActiveRequests int64
 	numUserServiceErrs uint64
 	numVideoServiceErrs uint64
-	totalLatency int64 // TODO: potential overflow? can also just keep the average latency
+	totalLatency int64
+	numStaleResponse uint64
+	fallBackVideos *trendingVideos
 }
 
 type rankPair struct {
@@ -56,13 +65,21 @@ type rankPair struct {
 	score uint64
 }
 
+
 func MakeVideoRecServiceServer(options VideoRecServiceOptions) (*VideoRecServiceServer, error) {
-	return &VideoRecServiceServer{
+	res := &VideoRecServiceServer{
 		options: options,
 		// Add any data to initialize here
 		mockUserFlag: false,
 		mockVideoFlag: false,
-	}, nil
+		fallBackVideos: &trendingVideos{
+			videos: nil,
+		},
+	}
+
+	go fetchTrendingVideos(res)
+
+	return res, nil
 }
 
 func MakeVideoRecServiceServerWithMocks(
@@ -87,7 +104,8 @@ func (server *VideoRecServiceServer) GetTopVideos(
 ) (*pb.GetTopVideosResponse, error) {
 	// --------------------- First user request ----------------------
 	start_time := time.Now().UnixMilli()
-	atomic.AddUint64(&server.numActiveRequests, 1)
+	atomic.AddInt64(&server.numActiveRequests, 1)
+	defer atomic.AddInt64(&server.numActiveRequests, -1)
 	defer atomic.AddUint64(&server.numTopVideoRequests, 1)
 	user_ids := []uint64{req.GetUserId()}
 	this_user_infos := make([]*upb.UserInfo, 0)
@@ -117,21 +135,37 @@ func (server *VideoRecServiceServer) GetTopVideos(
 		uconn, err := grpc.Dial(server.options.UserServiceAddr, opts...)
 		defer uconn.Close()
 		if err != nil {
-			atomic.AddUint64(&server.numTopVideoErrs, 1)
-			atomic.AddUint64(&server.numUserServiceErrs, 1)
-			log.Printf("fail to dial: %v", err)
-			return nil, status.Error(
-				codes.Unknown,
-				"User service client cannot establish connection with the server",
-			)
+			// retry
+			if server.options.DisableRetry == false {
+				uconn, err = grpc.Dial(server.options.UserServiceAddr, opts...)
+			}
+			if err != nil {
+				atomic.AddUint64(&server.numUserServiceErrs, 1)
+				// Fallback
+				if server.options.DisableFallback == false {
+					atomic.AddUint64(&server.numStaleResponse, 1)
+					return fallBack(server)
+				}
+				atomic.AddUint64(&server.numTopVideoErrs, 1)
+				log.Printf("fail to dial: %v", err)
+				return nil, status.Error(
+					codes.Unknown,
+					"User service client cannot establish connection with the server",
+				)
+			}
 		}
 		// TODO: Are there potential other error cases? Add and use different error codes
 		uclient = upb.NewUserServiceClient(uconn)
 		user_response, err := uclient.GetUser(ctx, user_request)
 		this_user_infos = user_response.GetUsers()
 		if err != nil {
-			atomic.AddUint64(&server.numTopVideoErrs, 1)
+			// fallback
 			atomic.AddUint64(&server.numUserServiceErrs, 1)
+			if server.options.DisableFallback == false {
+				atomic.AddUint64(&server.numStaleResponse, 1)
+				return fallBack(server)
+			}
+			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			log.Printf("fail to get userinfo 1: %v", err)
 			return nil, status.Error(
 				codes.Unavailable,
@@ -161,8 +195,13 @@ func (server *VideoRecServiceServer) GetTopVideos(
 			second_user_response, err = uclient.GetUser(ctx, second_user_request)
 		}
 		if err != nil {
-			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			atomic.AddUint64(&server.numUserServiceErrs, 1)
+			// Fallback
+			if server.options.DisableFallback == false {
+				atomic.AddUint64(&server.numStaleResponse, 1)
+				return fallBack(server)
+			}
+			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			log.Printf("fail to get userinfo 2: %v", err)
 			return nil, status.Error(
 				codes.Unavailable,
@@ -187,8 +226,13 @@ func (server *VideoRecServiceServer) GetTopVideos(
 	fmt.Println("Starting video requests for a number of ", len(dedup_candidates),  " video candidates: ", dedup_candidates)
 	video_infos, err := fetchVideos(server, ctx, dedup_candidates)
 	if err != nil {
-		atomic.AddUint64(&server.numTopVideoErrs, 1)
 		atomic.AddUint64(&server.numVideoServiceErrs, 1)
+		// Fallback
+		if server.options.DisableFallback == false {
+			atomic.AddUint64(&server.numStaleResponse, 1)
+			return fallBack(server)
+		}
+		atomic.AddUint64(&server.numTopVideoErrs, 1)
 		log.Printf("fail to get video info: %v", err)
 		return nil, err
 	}
@@ -247,11 +291,19 @@ func fetchVideos(
 		fmt.Println("Video server dialed, now trying to get video response")
 	}
 	if err != nil {
-		log.Fatalf("fail to dial: %v", err)
-		return nil, status.Error(
-			codes.Unknown,
-			"Video service client cannot establish connection with the server",
-		)
+		//retry
+		if server.options.DisableRetry == false {
+			vconn, err = grpc.Dial(server.options.VideoServiceAddr, opts...)
+		}
+		defer vconn.Close()
+		vclient = vpb.NewVideoServiceClient(vconn)
+		if err != nil {
+			log.Printf("fail to dial: %v", err)
+			return nil, status.Error(
+				codes.Unknown,
+				"Video service client cannot establish connection with the server",
+			)
+		}
 	}
 	
 	offset := 0
@@ -288,16 +340,96 @@ func (server *VideoRecServiceServer) GetStats(
 	req *pb.GetStatsRequest,
 ) (*pb.GetStatsResponse, error) {
 
-	var avg_latency float32 = float32(atomic.LoadInt64(&server.totalLatency)) / float32(atomic.LoadUint64(&server.numTopVideoRequests))
+	var avg_latency float32 = float32(atomic.LoadInt64(&server.totalLatency)) / float32(atomic.LoadUint64(&server.numTopVideoRequests) - atomic.LoadUint64(&server.numTopVideoErrs))
 	
 	return &pb.GetStatsResponse{
 		TotalRequests:	atomic.LoadUint64(&server.numTopVideoRequests),
 		TotalErrors:	atomic.LoadUint64(&server.numTopVideoErrs),
-		ActiveRequests:	atomic.LoadUint64(&server.numActiveRequests),
+		ActiveRequests:	uint64(atomic.LoadInt64(&server.numActiveRequests)),
 		UserServiceErrors:	atomic.LoadUint64(&server.numUserServiceErrs),
 		VideoServiceErrors:	atomic.LoadUint64(&server.numVideoServiceErrs),
+		StaleResponses:	atomic.LoadUint64(&server.numStaleResponse),
 		AverageLatencyMs:	avg_latency,
 	}, nil
+}
+
+func fallBack(
+	server *VideoRecServiceServer,
+) (*pb.GetTopVideosResponse, error) {
+	fmt.Println("FALLBACK")
+	server.fallBackVideos.mu.RLock()
+	defer server.fallBackVideos.mu.RUnlock()
+
+	if (server.fallBackVideos.videos != nil) && (len(server.fallBackVideos.videos) != 0) {
+		return &pb.GetTopVideosResponse{Videos:server.fallBackVideos.videos}, nil
+	} else {
+		log.Printf("Fallback also fails")
+		return nil, status.Error(
+			codes.Unavailable,
+			"Fallback fails, no trending video cache is available",
+		)
+	}
+}
+
+func fetchTrendingVideos (
+	server *VideoRecServiceServer,
+) {
+	// Periodlly fetch trending videos
+	for true {
+		if server.fallBackVideos.expireTime >= time.Now().Unix() {continue}
+		flag.Parse()
+		var opts []grpc.DialOption
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+		var vconn *grpc.ClientConn
+		var err error
+		var vclient vpb.VideoServiceClient
+
+		vconn, err = grpc.Dial(server.options.VideoServiceAddr, opts...)
+		
+		vclient = vpb.NewVideoServiceClient(vconn)
+		fmt.Println("[Trending videos] Video server dialed, now trying to get video response")
+		if err != nil {
+			log.Printf("[Trending videos] fail to dial: %v", err)
+			time.Sleep(15 * time.Second)
+			vconn.Close()
+			continue
+		}
+
+		trending_video_response, err := vclient.GetTrendingVideos(context.Background(), &vpb.GetTrendingVideosRequest{})
+		if err != nil {
+			log.Printf("[Trending videos] fail to get trending video ids: %v", err)
+			time.Sleep(15 * time.Second)
+			vconn.Close()
+			continue
+		}
+		// Batch
+		video_ids := trending_video_response.GetVideos()
+		offset := 0
+		video_infos := make([]*vpb.VideoInfo, 0)
+		new_expire := int64(trending_video_response.GetExpirationTimeS())
+
+		for offset < len(video_ids) {
+			upper := int(math.Min(float64(offset + server.options.MaxBatchSize), float64(len(video_ids))))
+			batch_video_ids := video_ids[offset:upper]
+			video_request := &vpb.GetVideoRequest{VideoIds: batch_video_ids}
+
+			video_response, err := vclient.GetVideo(context.Background(), video_request)
+			if err != nil {
+				log.Printf("[Trending videos] fail to get trending video infos: %v", err)
+				break
+			}
+			video_infos = append(video_infos, video_response.GetVideos()...)
+			
+			offset += server.options.MaxBatchSize
+		}
+
+		server.fallBackVideos.mu.Lock()
+		defer server.fallBackVideos.mu.Unlock()
+		server.fallBackVideos.videos = video_infos
+		server.fallBackVideos.expireTime = new_expire
+		vconn.Close()
+	}
 }
 
 func deduplicateIds(ids []uint64) []uint64 {
