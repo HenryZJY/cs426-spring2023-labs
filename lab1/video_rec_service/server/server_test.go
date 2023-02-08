@@ -159,4 +159,99 @@ func TestBatch(t *testing.T) {
 	assert.Equal(t, "precious here", videos[4].Title)
 }
 
-// TODO: Add 3 more more unit tests for fallback & getstats
+func TestTrending(t *testing.T) {
+	vrOptions := sl.VideoRecServiceOptions{
+		MaxBatchSize:    50,
+		DisableFallback: false,
+		DisableRetry:    true,
+	}
+	// You can specify failure injection options here or later send
+	// SetInjectionConfigRequests using these mock clients
+	uClient :=
+		umc.MakeMockUserServiceClient(*usl.DefaultUserServiceOptions())
+	vClient :=
+		vmc.MakeMockVideoServiceClient(*vsl.DefaultVideoServiceOptions())
+	vrService := sl.MakeVideoRecServiceServerWithMocks(
+		vrOptions,
+		uClient,
+		vClient,
+	)
+
+	time.Sleep(2 * time.Second)
+	assert.True(t, vrService.PeakTrendingVideos() != nil)
+	assert.True(t, len(vrService.PeakTrendingVideos()) > 0)
+
+}
+
+func TestFallBackBasic(t *testing.T) {
+	vrOptions := sl.VideoRecServiceOptions{
+		MaxBatchSize:    50,
+		DisableFallback: false,
+		DisableRetry:    true,
+	}
+	// You can specify failure injection options here or later send
+	// SetInjectionConfigRequests using these mock clients
+	uClient :=
+		umc.MakeMockUserServiceClient(*usl.DefaultUserServiceOptions())
+	vClient :=
+		vmc.MakeMockVideoServiceClient(*vsl.DefaultVideoServiceOptions())
+	vrService := sl.MakeVideoRecServiceServerWithMocks(
+		vrOptions,
+		uClient,
+		vClient,
+	)
+
+	time.Sleep(2 * time.Second)
+
+	var userId uint64 = 204054
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	uClient.SetInjectionConfig(ctx, &fipb.SetInjectionConfigRequest{
+		Config: &fipb.InjectionConfig{
+			// fail one in 1 request, i.e., always fail
+			FailureRate: 1,
+		},
+	})
+	out, err := vrService.GetTopVideos(
+		ctx,
+		&pb.GetTopVideosRequest{UserId: userId, Limit: 5},
+	)
+	assert.True(t, err == nil)
+	assert.True(t, out.StaleResponse == true)
+	assert.Equal(t, 5, len(out.Videos))
+}
+
+func TestGetStats(t *testing.T) {
+	vrOptions := sl.VideoRecServiceOptions{
+		MaxBatchSize:    50,
+		DisableFallback: true,
+		DisableRetry:    true,
+	}
+	// You can specify failure injection options here or later send
+	// SetInjectionConfigRequests using these mock clients
+	uClient :=
+		umc.MakeMockUserServiceClient(*usl.DefaultUserServiceOptions())
+	vClient :=
+		vmc.MakeMockVideoServiceClient(*vsl.DefaultVideoServiceOptions())
+	vrService := sl.MakeVideoRecServiceServerWithMocks(
+		vrOptions,
+		uClient,
+		vClient,
+	)
+
+	var userId uint64 = 204054
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := vrService.GetTopVideos(
+		ctx,
+		&pb.GetTopVideosRequest{UserId: userId, Limit: 5},
+	)
+	assert.True(t, err == nil)
+
+	videos := out.Videos
+	assert.Equal(t, 5, len(videos))
+	stats, _ := vrService.GetStats(ctx, &pb.GetStatsRequest{})
+	assert.Equal(t, 1, int(stats.GetTotalRequests()))
+	assert.Equal(t, 0, int(stats.GetTotalErrors()))
+}

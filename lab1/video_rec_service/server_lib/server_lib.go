@@ -89,13 +89,19 @@ func MakeVideoRecServiceServerWithMocks(
 ) *VideoRecServiceServer {
 	// TODO: Implement your own logic here
 	
-	return &VideoRecServiceServer{
+	res := &VideoRecServiceServer{
 		options: options,
 		mockUserFlag: true,
 		mockVideoFlag: true,
 		mockUserServiceClient: mockUserServiceClient,
 		mockVideoServiceClient: mockVideoServiceClient,
+		fallBackVideos: &trendingVideos{
+			videos: nil,
+		},
 	}
+
+	go fetchTrendingVideos(res)
+	return res
 }
 
 func (server *VideoRecServiceServer) GetTopVideos(
@@ -116,8 +122,12 @@ func (server *VideoRecServiceServer) GetTopVideos(
 	if server.mockUserFlag {
 		user_response, err := server.mockUserServiceClient.GetUser(ctx, user_request)
 		if err != nil {
-			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			atomic.AddUint64(&server.numUserServiceErrs, 1)
+			// Fallback
+			if server.options.DisableFallback == false {
+				return fallBack(server, req)
+			}
+			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			log.Printf("fail to setup mock user service: %v", err)
 			return nil, status.Error(
 				codes.Unknown,
@@ -143,8 +153,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 				atomic.AddUint64(&server.numUserServiceErrs, 1)
 				// Fallback
 				if server.options.DisableFallback == false {
-					atomic.AddUint64(&server.numStaleResponse, 1)
-					return fallBack(server)
+					return fallBack(server, req)
 				}
 				atomic.AddUint64(&server.numTopVideoErrs, 1)
 				log.Printf("fail to dial: %v", err)
@@ -162,8 +171,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 			// fallback
 			atomic.AddUint64(&server.numUserServiceErrs, 1)
 			if server.options.DisableFallback == false {
-				atomic.AddUint64(&server.numStaleResponse, 1)
-				return fallBack(server)
+				return fallBack(server, req)
 			}
 			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			log.Printf("fail to get userinfo 1: %v", err)
@@ -198,8 +206,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 			atomic.AddUint64(&server.numUserServiceErrs, 1)
 			// Fallback
 			if server.options.DisableFallback == false {
-				atomic.AddUint64(&server.numStaleResponse, 1)
-				return fallBack(server)
+				return fallBack(server, req)
 			}
 			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			log.Printf("fail to get userinfo 2: %v", err)
@@ -229,8 +236,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 		atomic.AddUint64(&server.numVideoServiceErrs, 1)
 		// Fallback
 		if server.options.DisableFallback == false {
-			atomic.AddUint64(&server.numStaleResponse, 1)
-			return fallBack(server)
+			return fallBack(server, req)
 		}
 		atomic.AddUint64(&server.numTopVideoErrs, 1)
 		log.Printf("fail to get video info: %v", err)
@@ -315,7 +321,7 @@ func fetchVideos(
 		video_request := &vpb.GetVideoRequest{VideoIds: batch_video_candids}
 
 		var video_response *vpb.GetVideoResponse
-		var err error;
+		var err error
 		if server.mockVideoFlag {
 			video_response, err = server.mockVideoServiceClient.GetVideo(ctx, video_request)
 		} else {
@@ -353,8 +359,15 @@ func (server *VideoRecServiceServer) GetStats(
 	}, nil
 }
 
+func (server *VideoRecServiceServer) PeakTrendingVideos() ([]*vpb.VideoInfo) {
+	server.fallBackVideos.mu.RLock()
+	defer server.fallBackVideos.mu.RUnlock()
+	return server.fallBackVideos.videos
+}
+
 func fallBack(
 	server *VideoRecServiceServer,
+	req *pb.GetTopVideosRequest,
 ) (*pb.GetTopVideosResponse, error) {
 	fmt.Println("Entering Fallback")
 	server.fallBackVideos.mu.Lock()
@@ -363,8 +376,14 @@ func fallBack(
 	if (server.fallBackVideos.videos != nil) && (len(server.fallBackVideos.videos) != 0) {
 		fmt.Println("FALLBACK returning ", len(server.fallBackVideos.videos), " videos")
 		atomic.AddUint64(&server.numStaleResponse, 1)
+
+		iter_len := len(server.fallBackVideos.videos)
+		if limit := req.GetLimit(); int(limit) < iter_len {
+			iter_len = int(limit)
+		}
+
 		// fmt.Println("WHAT!!!!   ", atomic.LoadUint64(&server.numStaleResponse))
-		return &pb.GetTopVideosResponse{Videos:server.fallBackVideos.videos, StaleResponse:true}, nil
+		return &pb.GetTopVideosResponse{Videos:server.fallBackVideos.videos[0:iter_len], StaleResponse:true}, nil
 	} else {
 		log.Printf("Fallback also fails")
 		return nil, status.Error(
@@ -390,25 +409,31 @@ func fetchTrendingVideos (
 		var vconn *grpc.ClientConn
 		var err error
 		var vclient vpb.VideoServiceClient
+		var trending_video_response *vpb.GetTrendingVideosResponse
 
-		vconn, err = grpc.Dial(server.options.VideoServiceAddr, opts...)
-		
-		vclient = vpb.NewVideoServiceClient(vconn)
-		fmt.Println("[Trending videos] Video server dialed, now trying to get video response")
-		if err != nil {
-			log.Printf("[Trending videos] fail to dial: %v", err)
-			time.Sleep(15 * time.Second)
-			vconn.Close()
-			continue
+		if server.mockVideoFlag == false {
+			vconn, err = grpc.Dial(server.options.VideoServiceAddr, opts...)
+			
+			vclient = vpb.NewVideoServiceClient(vconn)
+			fmt.Println("[Trending videos] Video server dialed, now trying to get video response")
+			if err != nil {
+				log.Printf("[Trending videos] fail to dial: %v", err)
+				time.Sleep(15 * time.Second)
+				vconn.Close()
+				continue
+			}
+			trending_video_response, err = vclient.GetTrendingVideos(context.Background(), &vpb.GetTrendingVideosRequest{})
+			
+		} else {
+			trending_video_response, err = server.mockVideoServiceClient.GetTrendingVideos(context.Background(), &vpb.GetTrendingVideosRequest{})
 		}
-
-		trending_video_response, err := vclient.GetTrendingVideos(context.Background(), &vpb.GetTrendingVideosRequest{})
 		if err != nil {
 			log.Printf("[Trending videos] fail to get trending video ids: %v", err)
 			time.Sleep(15 * time.Second)
 			vconn.Close()
 			continue
 		}
+
 		// Batch
 		video_ids := trending_video_response.GetVideos()
 		offset := 0
@@ -420,7 +445,13 @@ func fetchTrendingVideos (
 			batch_video_ids := video_ids[offset:upper]
 			video_request := &vpb.GetVideoRequest{VideoIds: batch_video_ids}
 
-			video_response, err := vclient.GetVideo(context.Background(), video_request)
+			var video_response *vpb.GetVideoResponse
+			var err error
+			if server.mockVideoFlag {
+				video_response, err = server.mockVideoServiceClient.GetVideo(context.Background(), video_request)
+			} else {
+				video_response, err = vclient.GetVideo(context.Background(), video_request)
+			}
 			if err != nil {
 				log.Printf("[Trending videos] fail to get trending video infos: %v", err)
 				break
@@ -435,7 +466,7 @@ func fetchTrendingVideos (
 		server.fallBackVideos.videos = video_infos
 		server.fallBackVideos.expireTime = new_expire
 		server.fallBackVideos.mu.Unlock()
-		vconn.Close()
+		if server.mockVideoFlag == false {vconn.Close()}
 	}
 }
 
