@@ -77,6 +77,10 @@ and the results of the requests.
 
 
 # ExtraCredit2
+To reduce the total number of requests to a server, we can do the following: 
+1 Group multiple requests into a single batch.
+2 Modify the gRPC server to handle the batched requests.
+3 Modify the client to send the batch of requests to the server in a single gRPC call.
 
 # B2
 go run cmd/loadgen/loadgen.go --target-qps=10
