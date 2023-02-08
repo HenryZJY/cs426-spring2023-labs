@@ -22,13 +22,10 @@ DEADLINE_EXCEEDED status code.
 When calling GetUser() service, the gRPC library will make use of several network and system calls. 
 Some of the calls include:
 
-1. connect(): This system call is used to establish a connection to the target gRPC server. This call can fail if 
-the target host is unreachable or if there is a problem with the network connection.
-
-2. send() and recv(): These system calls are used to send and receive data over the network connection. 
+1. send() and recv(): These system calls are used to send and receive data over the network connection. 
 They can fail if the connection is closed or if there is a problem with the network.
 
-3. poll() or select(): These system calls are used to monitor the network connection for incoming data. 
+2. poll() or select(): These system calls are used to monitor the network connection for incoming data. 
 They can fail if there is a problem with the file descriptor being monitored.
 
 The GetUser() call itself can also return errors in several cases: 

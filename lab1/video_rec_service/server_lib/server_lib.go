@@ -157,10 +157,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 				}
 				atomic.AddUint64(&server.numTopVideoErrs, 1)
 				log.Printf("fail to dial: %v", err)
-				return nil, status.Error(
-					codes.Unknown,
-					"User service client cannot establish connection with the server",
-				)
+				return nil, err
 			}
 		}
 		// TODO: Are there potential other error cases? Add and use different error codes
@@ -175,10 +172,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 			}
 			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			log.Printf("fail to get userinfo 1: %v", err)
-			return nil, status.Error(
-				codes.Unavailable,
-				"User service client fail to get the first set of user responses from the server",
-			)
+			return nil, err
 		}
 		fmt.Println("Finished first user request for user", user_ids, this_user_infos[0].GetUserId())
 	}
@@ -210,10 +204,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 			}
 			atomic.AddUint64(&server.numTopVideoErrs, 1)
 			log.Printf("fail to get userinfo 2: %v", err)
-			return nil, status.Error(
-				codes.Unavailable,
-				"User service client fail to get the second set of user responses from the server",
-			)
+			return nil, err
 		}
 
 		second_user_infos := second_user_response.GetUsers()
@@ -378,7 +369,7 @@ func fallBack(
 		atomic.AddUint64(&server.numStaleResponse, 1)
 
 		iter_len := len(server.fallBackVideos.videos)
-		if limit := req.GetLimit(); int(limit) < iter_len {
+		if limit := req.GetLimit(); (int(limit) < iter_len && limit > 0) {
 			iter_len = int(limit)
 		}
 
