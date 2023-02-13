@@ -4,16 +4,16 @@ FROM golang:1.19-alpine
 
 WORKDIR /app
 
-COPY go.mod ./
-COPY go.sum ./
+# Download Go modules
+# COPY go.mod .
+# COPY go.sum .
+# RUN go mod download
 
-RUN go mod download
+COPY ./ ./
 
-COPY *.go ./
-COPY *.proto ./
-
-RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /docker-gs-ping
+RUN go mod tidy
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /video-rec-service ./video_rec_service/server
 
 EXPOSE 8080
 
-CMD [ "/docker-gs-ping" ]
+CMD [ "/video-rec-service" ]
