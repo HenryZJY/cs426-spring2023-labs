@@ -1,0 +1,17 @@
+
+apiVersion: cs426.cloud/v1
+kind: LoadgenResult
+metadata:
+  creationTimestamp: "2023-02-14T03:55:47Z"
+  generation: 1
+  name: video-rec-loadgen-0
+  namespace: jz792
+  resourceVersion: "11841442"
+  uid: a7e5cad4-158b-4088-832d-9e29591fc94a
+spec:
+  average_latency_ms: 894.098
+  duration_s: 60
+  error_msg: ""
+  errors: 0
+  requests: 51
+  stale_responses: 0

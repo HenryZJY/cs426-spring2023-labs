@@ -1,0 +1,18 @@
+Time     Time
+Date  Started  Spent Work completed
+----  -------  ----  --------------
+02/12 10:00 pm 
+02/13 9:00 am
+02/13 4:00 pm
+02/13 8:00 pm   3hrs
+02/14 1:00 pm   1.5hrs
+02/14 4:00 pm   1 hr
+
+I discussed my solutions with Guanyi Su and Xianglong Li. 
+
+Figuring out the specific commands in kubernetes yml files was the most challenging for me. 
+I was unfamiliar with the specific architecure of kubernetes services, in particular, the dns
+structures for different pods and services. Therefore, I got quite confused while Figuring
+out the dns hostnames. In addition, I did not know about the yml syntax before this lab, so 
+I struggled with the indentation, arrays construction in writing the yml files. I was also quite
+surprised to see that we have to rewrite codes again (and again) in part C. 
