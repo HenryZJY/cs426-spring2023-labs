@@ -39,6 +39,11 @@ var (
 		false,
 		"If set, disable all retries",
 	)
+	clientPoolSize = flag.Int(
+		"client-pool-size",
+		4,
+		"Connection pool size",
+	)
 )
 
 func main() {
@@ -55,6 +60,7 @@ func main() {
 		MaxBatchSize:     *maxBatchSize,
 		DisableFallback:  *disableFallback,
 		DisableRetry:     *disableRetry,
+		ClientPoolSize:	  *clientPoolSize,
 	})
 	if err != nil {
 		log.Fatalf("failed to start server: %q", err)

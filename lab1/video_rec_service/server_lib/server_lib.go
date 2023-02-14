@@ -34,6 +34,8 @@ type VideoRecServiceOptions struct {
 	DisableFallback bool
 	// If set, disable all retries
 	DisableRetry bool
+	// Connection pool size
+	ClientPoolSize int
 }
 
 type trendingVideos struct {
@@ -57,7 +59,11 @@ type VideoRecServiceServer struct {
 	numVideoServiceErrs uint64
 	totalLatency int64
 	numStaleResponse uint64
+	userRobinCount int64
+	videoRobinCount int64
 	fallBackVideos *trendingVideos
+	userConnPool []*grpc.ClientConn
+	videoConnPool []*grpc.ClientConn
 }
 
 type rankPair struct {
@@ -67,6 +73,7 @@ type rankPair struct {
 
 
 func MakeVideoRecServiceServer(options VideoRecServiceOptions) (*VideoRecServiceServer, error) {
+	
 	res := &VideoRecServiceServer{
 		options: options,
 		// Add any data to initialize here
@@ -75,6 +82,53 @@ func MakeVideoRecServiceServer(options VideoRecServiceOptions) (*VideoRecService
 		fallBackVideos: &trendingVideos{
 			videos: nil,
 		},
+		userConnPool: make([]*grpc.ClientConn, 0),
+		videoConnPool: make([]*grpc.ClientConn, 0),
+	}
+
+	// make the user client conns pool
+	flag.Parse()
+	var user_opts []grpc.DialOption
+	user_opts = append(user_opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	fmt.Println("Dialing the user service")
+
+	for i := 0; i < options.ClientPoolSize; i++ {
+		uconn, err := grpc.Dial(options.UserServiceAddr, user_opts...)
+	
+		if err != nil {
+			// retry
+			if !options.DisableRetry {
+				uconn, err = grpc.Dial(options.UserServiceAddr, user_opts...)
+			}
+			if err != nil {
+				log.Printf("fail to dial: %v", err)
+				return nil, err
+			}
+		}
+		res.userConnPool = append(res.userConnPool, uconn)
+	}
+
+	// make the video client conns pool
+	flag.Parse()
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	fmt.Println("Dialing the video service")
+
+	for j := 0; j < options.ClientPoolSize; j++ {
+		vconn, err := grpc.Dial(options.VideoServiceAddr, opts...)
+
+		if err != nil {
+			//retry
+			if !options.DisableRetry {
+				vconn, err = grpc.Dial(options.VideoServiceAddr, opts...)
+			}
+			defer vconn.Close()
+			if err != nil {
+				log.Printf("fail to dial: %v", err)
+				return nil, err
+			}
+		}
+		res.videoConnPool = append(res.videoConnPool, vconn)
 	}
 
 	go fetchTrendingVideos(res)
@@ -139,28 +193,8 @@ func (server *VideoRecServiceServer) GetTopVideos(
 
 	} else {
 		fmt.Println("Starting first user request ")
-		flag.Parse()
-		var opts []grpc.DialOption
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		uconn, err := grpc.Dial(server.options.UserServiceAddr, opts...)
-		defer uconn.Close()
-		if err != nil {
-			// retry
-			if server.options.DisableRetry == false {
-				uconn, err = grpc.Dial(server.options.UserServiceAddr, opts...)
-			}
-			if err != nil {
-				atomic.AddUint64(&server.numUserServiceErrs, 1)
-				// Fallback
-				if server.options.DisableFallback == false {
-					return fallBack(server, req)
-				}
-				atomic.AddUint64(&server.numTopVideoErrs, 1)
-				log.Printf("fail to dial: %v", err)
-				return nil, err
-			}
-		}
-		// TODO: Are there potential other error cases? Add and use different error codes
+		
+		uconn := getClientRoundRobin(server, true)
 		uclient = upb.NewUserServiceClient(uconn)
 		user_response, err := uclient.GetUser(ctx, user_request)
 		this_user_infos = user_response.GetUsers()
@@ -239,7 +273,7 @@ func (server *VideoRecServiceServer) GetTopVideos(
 
 	arr_to_rank := make([]rankPair, 0)
 	u_coeff := this_user_infos[0].GetUserCoefficients()
-	// fmt.Print("Now Ranking:  ")
+	fmt.Print("Now Ranking:  ")
 	for _, video_info := range video_infos {
 		// fmt.Print(video_info.GetVideoId(), "  ")
 		v_coeff := video_info.GetVideoCoefficients()
@@ -274,33 +308,11 @@ func fetchVideos(
 	video_candids []uint64,
 ) ([]*vpb.VideoInfo, error) {
 	// Batch this
-	flag.Parse()
-	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-
-	var vconn *grpc.ClientConn
-	var err error
+	// TODO: Round Robin
 	var vclient vpb.VideoServiceClient
-	if server.mockVideoFlag == false {
-		vconn, err = grpc.Dial(server.options.VideoServiceAddr, opts...)
-		defer vconn.Close()
+	if !server.mockVideoFlag {
+		vconn := getClientRoundRobin(server, false)
 		vclient = vpb.NewVideoServiceClient(vconn)
-		fmt.Println("Video server dialed, now trying to get video response")
-	}
-	if err != nil {
-		//retry
-		if server.options.DisableRetry == false {
-			vconn, err = grpc.Dial(server.options.VideoServiceAddr, opts...)
-		}
-		defer vconn.Close()
-		vclient = vpb.NewVideoServiceClient(vconn)
-		if err != nil {
-			log.Printf("fail to dial: %v", err)
-			return nil, status.Error(
-				codes.Unknown,
-				"Video service client cannot establish connection with the server",
-			)
-		}
 	}
 	
 	offset := 0
@@ -388,7 +400,7 @@ func fetchTrendingVideos (
 	server *VideoRecServiceServer,
 ) {
 	// Periodlly fetch trending videos
-	for true {
+	for {
 		if server.fallBackVideos.expireTime >= time.Now().Unix() {
 			time.Sleep(15 * time.Second)
 			continue
@@ -402,7 +414,7 @@ func fetchTrendingVideos (
 		var vclient vpb.VideoServiceClient
 		var trending_video_response *vpb.GetTrendingVideosResponse
 
-		if server.mockVideoFlag == false {
+		if !server.mockVideoFlag {
 			vconn, err = grpc.Dial(server.options.VideoServiceAddr, opts...)
 			
 			vclient = vpb.NewVideoServiceClient(vconn)
@@ -471,4 +483,20 @@ func deduplicateIds(ids []uint64) []uint64 {
 		}
 	}
 	return deduped
+}
+
+func getClientRoundRobin(server *VideoRecServiceServer, user bool) *grpc.ClientConn {
+	var index int
+	var client *grpc.ClientConn
+	fmt.Println("Round Robin Called")
+	if user {
+		index = int(atomic.LoadInt64(&server.userRobinCount))
+		client = server.userConnPool[index % len(server.userConnPool)]
+		atomic.AddInt64(&server.userRobinCount, 1)
+	} else {
+		index = int(atomic.LoadInt64(&server.videoRobinCount))
+		client = server.videoConnPool[index % len(server.videoConnPool)]
+		atomic.AddInt64(&server.videoRobinCount, 1)
+	}
+	return client
 }
