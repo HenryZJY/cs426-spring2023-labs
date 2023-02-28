@@ -41,6 +41,7 @@ const (
 	ElectionTimeout = 500 * time.Millisecond
 	RPCTimeout = 100 * time.Millisecond
 	HeartbeatTimeout = 150 * time.Millisecond
+	ApplyTime = 100 * time.Millisecond
 )
 
 type LogEntry struct {
@@ -128,9 +129,9 @@ func (rf *Raft) changeRole(role Role) {
 		rf.nextIndex = make([]int, len(rf.peers))
 		rf.matchIndex = make([]int, len(rf.peers))
 		_, lastLogIndex := rf.getLastLogTermIndex()
-		for i := range rf.peers {
+		for i, _ := range rf.peers {
 			rf.nextIndex[i] = lastLogIndex + 1
-			rf.matchIndex[i] = 0 // TODO: check if this is correct
+			// rf.matchIndex[i] = 0 // TODO: check if this is correct
 		}
 		rf.matchIndex[rf.me] = lastLogIndex
 		rf.resetElectionTimer()
@@ -215,7 +216,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.lock("RequestVote")
 	defer rf.unlock("RequestVote")
 	defer func() {
-		rf.delog("RequestVote: %+v", reply)
+		rf.delog("RequestVote: args: %+v, reply: %+v", args, reply)
 	}()
 
 	reply.Term = rf.currentTerm
@@ -245,7 +246,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = -1
 	}
 
-	if args.LastLogTerm > lastLogTerm || (args.LastLogTerm == lastLogTerm && lastLogIndex > args.LastLogIndex) {
+	if args.LastLogTerm < lastLogTerm || (args.LastLogTerm == lastLogTerm && lastLogIndex > args.LastLogIndex) {
 		return
 	}
 	rf.currentTerm = args.Term
@@ -388,7 +389,7 @@ func (rf *Raft) startElection() {
 		rf.delog("Not enough votes, Vote count: %d", voteCount)
 		return
 	}
-	rf.lock("start-election-term-again")
+	rf.lock("start-election-term-2")
     rf.delog("Changing to leader, Vote count: %d", voteCount)
 	if rf.currentTerm == args.Term && rf.role == Candidate && voteCount > len(rf.peers)/2 {
 		rf.changeRole(Leader)
@@ -398,7 +399,7 @@ func (rf *Raft) startElection() {
 	if rf.role == Leader {
 		rf.resetAllHeartbeatTimer()
 	}
-	rf.unlock("start-election-term-again")
+	rf.unlock("start-election-term-2")
 }
 
 func (rf *Raft) getLastLogTermIndex() (int, int) {
@@ -412,7 +413,7 @@ func (rf *Raft) getLastLogTermIndex() (int, int) {
 
 
 func (rf *Raft) getIdxByLogIndex(logIndex int) int {
-	res := logIndex - rf.lastSnapshotIndex - 1
+	res := logIndex - rf.lastSnapshotIndex
 	if res < 0 {
 		return -1
 	}
@@ -500,6 +501,42 @@ func (rf *Raft) ticker() {
 	}
 }
 
+func (rf *Raft) applyLogs() {
+	defer rf.applyTimer.Reset(ApplyTime)
+	rf.lock("applyLogs-1")
+	var messages []ApplyMsg
+	if rf.lastSnapshotIndex > rf.lastApplied {
+		messages = make([]ApplyMsg, 0, 1)
+		messages = append(messages, ApplyMsg{
+			CommandValid: false,
+			Command:      "Snapshot",
+			CommandIndex: rf.lastSnapshotIndex,
+		})
+	} else if rf.lastApplied >= rf.commitIndex{
+		// commit index is not updated yet ??
+		messages = make([]ApplyMsg, 0)
+	} else {
+		rf.delog("Applying logs")
+		messages = make([]ApplyMsg, 0, rf.commitIndex - rf.lastApplied)
+		for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
+			messages = append(messages, ApplyMsg{
+				CommandValid: true,
+				Command:      rf.logEntries[rf.getIdxByLogIndex(i)].Command,
+				CommandIndex: i,
+			})
+		}
+	}
+	rf.unlock("applyLogs-1")
+
+	for _, msg := range messages {
+		rf.applyCh <- msg
+		rf.lock("applyLogs-2")
+		rf.lastApplied = msg.CommandIndex
+		rf.delog("Applied log index: %d", rf.lastApplied)
+		rf.unlock("applyLogs-2")
+	}
+}
+
 func (rf *Raft) resetElectionTimer() {
 	rf.electionTimer.Stop()
 	rf.electionTimer.Reset(getRandomElectionTimeout())
@@ -513,7 +550,8 @@ func (rf *Raft) delog(content string, a ...interface{}) {
 	if !rf.DebugFlag {
 		return
 	}
-	s := fmt.Sprintf("Raft me: %d, role:%v, term:%d, ", rf.me, rf.role, rf.currentTerm)
+	t, id := rf.getLastLogTermIndex()
+	s := fmt.Sprintf("Raft me: %d, role:%v, term:%d, commit_index:%d, lastlogterm:%d, lastlogidx: %d, next_indices:%+v", rf.me, rf.role, rf.currentTerm, rf.commitIndex, t, id, rf.nextIndex)
 	c := fmt.Sprintf(content, a...)
 	log.Printf("%s DebugLog: %s", s, c)
 	// Can add last term and index in the debug logging as well.
@@ -536,13 +574,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.applyCh = applyCh
 
 	rf.DebugFlag = false
 
 	// Your initialization code here (3A, 3B, 3C).
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.logEntries = make([]LogEntry, 1) // index 0 is dummy
+	rf.logEntries = make([]LogEntry, 1) // index 0 is snapshot
 	rf.role = Follower
 	rf.stopChannel = make(chan struct{})
 
@@ -553,6 +592,22 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	for i :=0; i < len(rf.peers); i++ {
 		rf.appendEntriesTimers = append(rf.appendEntriesTimers, time.NewTimer(HeartbeatTimeout))
 	}
+	rf.applyTimer = time.NewTimer(ApplyTime)
+	rf.signalApplyCh = make(chan struct{}, 100)
+
+	// apply channels
+	go func() {
+		for {
+			select {
+			case <-rf.applyTimer.C:
+				rf.signalApplyCh <- struct{}{}
+			case <-rf.signalApplyCh:
+				rf.applyLogs()
+			case <-rf.stopChannel:
+				return
+			}
+		}
+	}()
 	
 	// start ticker goroutine to start elections
 	go rf.ticker()

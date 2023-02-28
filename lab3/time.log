@@ -6,4 +6,7 @@ Date  Started  Spent Work completed
 02/20 6:20 pm  2 hrs Read lab specification
 02/21 7:00 pm  2 hrs Read raft extended paper and make notes & mind map
 02/22 7:20 pm  4 hrs Finished reading paper and started part A
-02/27 9:00 pm   hrs Writing Part B
+
+02/27 9:00 pm   4 hrs Writing Part B, debugging failure of agreement
+02/28 10:00 am   2 hrs Debugged part B, but two tests still fail
+02/28 3:20 pm   1 hrs Part B tests passed

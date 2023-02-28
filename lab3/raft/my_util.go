@@ -28,7 +28,7 @@ func (rf *Raft) resetAllHeartbeatTimer() {
 
 func (rf *Raft) resetHeartbeatTimer(peeridx int) {
 	rf.appendEntriesTimers[peeridx].Stop()
-	rf.appendEntriesTimers[peeridx].Reset(0)
+	rf.appendEntriesTimers[peeridx].Reset(HeartbeatTimeout)
 }
 
 
@@ -42,6 +42,7 @@ func (rf *Raft) makeAppendEntriesArgs(peeridx int) AppendEntriesArgs {
 
 	if nextIdx > lastLogIndex || nextIdx < rf.lastSnapshotIndex {
 		// No log to send
+		rf.delog("makeAppendEntriesArgs: no log to send")
 		prevLogIndex = lastLogIndex
 		prevLogTerm = lastLogTerm
 	} else {
@@ -93,28 +94,33 @@ func (rf *Raft) sendAppendEntries(peeridx int) {
 		select {
 		case <-RPCTimer.C:
 			rf.delog("sendAppendEntries timeout: peeridx=%v", peeridx)
+			continue
 		case <-rf.stopChannel:
+			rf.delog("sendAppendEntries: stopped")
 			return
 		case ok := <-resCh:
 			if !ok {
-				rf.delog("GGGGGGG")
+				rf.delog("sendAppendEntries: GGGGGGG")
 				continue
 			}
 		}
+
 		rf.delog("sendAppendEntries: peeridx=%v, args=%+v, reply=%+v", peeridx, args, reply)
 		// handle the reply
 		rf.lock("sendAppendEntries2")
 		if rf.currentTerm < reply.Term {
 			// stfu
+			rf.delog("WAS SHUSHED STFU")
 			rf.currentTerm = reply.Term
 			rf.changeRole(Follower)
 			rf.resetElectionTimer()
-			rf.persist()
+			// rf.persist()
 			rf.unlock("sendAppendEntries2")
 			return
 		}
 		if rf.role != Leader || rf.currentTerm != args.Term {
 			// stfu
+			rf.delog("WEIRD STFU")
 			rf.unlock("sendAppendEntries2")
 			return
 		}
@@ -126,7 +132,7 @@ func (rf *Raft) sendAppendEntries(peeridx int) {
 			if len(args.Entries) > 0 && rf.currentTerm == args.Entries[len(args.Entries)-1].Term {
 				rf.updateCommitIndex()
 			}
-			rf.persist()
+			// rf.persist()
 			rf.unlock("sendAppendEntries2")
 			return
 		} else { // reply False
@@ -134,9 +140,11 @@ func (rf *Raft) sendAppendEntries(peeridx int) {
 				if rf.lastSnapshotIndex < reply.NexIndex {
 					rf.nextIndex[peeridx] = reply.NexIndex
 					rf.unlock("sendAppendEntries2")
+					rf.delog("Retrying sendAppendEntries")
 					continue
 				} else {
 					// TODO: send rpc to install snapshot
+					rf.delog("sendAppendEntries: NEED TO SEND INSTALL SNAPSHOT")
 					rf.unlock("sendAppendEntries2")
 					return
 				}
@@ -167,25 +175,28 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		reply.NexIndex = rf.lastSnapshotIndex + 1
 	} else if args.PrevLogIndex > lastLogIndex{ // Missing logs in the middle
+		rf.delog("AppendEntries: Missing logs in the middle, args.PrevLogIndex=%v, lastLogIndex=%v", args.PrevLogIndex, lastLogIndex)
 		reply.Success = false
 		reply.NexIndex = lastLogIndex + 1 // TODO: check this
+	} else if args.PrevLogIndex == rf.lastSnapshotIndex { // Can fill the gap
+		if rf.isArgsEntriesOutOfOrder(args) {
+			reply.Success = false
+			reply.NexIndex = 0
+		} else {
+			reply.Success = true
+			rf.delog("AppendEntries: successfully filled the gap, Now i have %+v log entries", len(rf.logEntries))
+			rf.logEntries = append(rf.logEntries[:1], args.Entries...)
+			_, tempLastIndex := rf.getLastLogTermIndex()
+			reply.NexIndex = tempLastIndex + 1
+		}
 	} else if rf.logEntries[rf.getIdxByLogIndex(args.PrevLogIndex)].Term == args.PrevLogTerm {
 		if rf.isArgsEntriesOutOfOrder(args) {
 			reply.Success = false
 			reply.NexIndex = 0
 		} else { // Can fill the gap with the log entries in args
 			reply.Success = true
+			rf.delog("AppendEntries: successfully filled the gap with the log entries in args")
 			rf.logEntries = append(rf.logEntries[:rf.getIdxByLogIndex(args.PrevLogIndex)+1], args.Entries...)
-			_, tempLastIndex := rf.getLastLogTermIndex()
-			reply.NexIndex = tempLastIndex + 1
-		}
-	} else if args.PrevLogIndex == rf.lastSnapshotIndex { // Can fill the gap with snapshot
-		if rf.isArgsEntriesOutOfOrder(args) {
-			reply.Success = false
-			reply.NexIndex = 0
-		} else {
-			reply.Success = true
-			rf.logEntries = append(rf.logEntries[:1], args.Entries...)
 			_, tempLastIndex := rf.getLastLogTermIndex()
 			reply.NexIndex = tempLastIndex + 1
 		}
@@ -198,6 +209,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			idx--
 		}
 		reply.NexIndex = idx + 1
+		rf.delog("AppendEntries logs dont match")
 	}
 
 	if reply.Success && args.LeaderCommit > rf.commitIndex {
@@ -206,13 +218,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 
-	rf.persist()
+	// rf.persist()
 	rf.delog("Handle AppendEntries: reply=%+v", reply)
 	rf.unlock("AppendEntries")
 }
 
 func (rf *Raft) updateCommitIndex() {
-	rf.delog("Updating commit index")
+	rf.delog("Start in updateCommitIndex()")
 	updated := false
 	for i := rf.commitIndex + 1; i <= rf.lastSnapshotIndex + len(rf.logEntries); i++ {
 		count := 0
@@ -220,7 +232,7 @@ func (rf *Raft) updateCommitIndex() {
 			if matchIndex >= i {
 				count++
 				if count > len(rf.peers)/2 {
-					rf.delog("Updating commit index: %d", i)
+					rf.delog("Updating commit index: %d.", i)
 					rf.commitIndex = i
 					updated = true
 					break
@@ -234,6 +246,7 @@ func (rf *Raft) updateCommitIndex() {
 	if updated {
 		rf.signalApplyCh <- struct{}{}
 	}
+	rf.delog("updateCommitIndex() returns")
 }
 
 func (rf *Raft) isArgsEntriesOutOfOrder(args *AppendEntriesArgs) bool {
