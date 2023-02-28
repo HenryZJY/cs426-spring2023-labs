@@ -12,4 +12,4 @@ Their recommended videos are:
  5. angry on by Armand Baumbach
 
 ## C3
-With a client pool size of 4, I noticed there are 4-5 peaks in the load distributions for both user services and video services. Each of the peak is relatively thin. If I use a pool size of 1, I should see fatter curves with a higher latencies. In contrast, if I use a pool size of 8, I should see thinncer curves, more peaks and lower latencies. 
+With a client pool size of 4, I noticed there are 4-5 peaks in the load distributions for both user services and video services. Most importantly, the qps to the two hosts are relatively balanced compared to a pool size of 1. THe two peaks are closer to each other, meaning that the connections are more evenly distributed over the two hosts. If we use a pool size of 8, I predict that the qps to the two hosts will be even closer to each other, i.e the connection loads will be more balanced. 
