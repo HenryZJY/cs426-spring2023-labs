@@ -114,7 +114,7 @@ func (rf *Raft) sendAppendEntries(peeridx int) {
 			rf.currentTerm = reply.Term
 			rf.changeRole(Follower)
 			rf.resetElectionTimer()
-			// rf.persist()
+			rf.persist()
 			rf.unlock("sendAppendEntries2")
 			return
 		}
@@ -132,7 +132,7 @@ func (rf *Raft) sendAppendEntries(peeridx int) {
 			if len(args.Entries) > 0 && rf.currentTerm == args.Entries[len(args.Entries)-1].Term {
 				rf.updateCommitIndex()
 			}
-			// rf.persist()
+			rf.persist()
 			rf.unlock("sendAppendEntries2")
 			return
 		} else { // reply False
@@ -218,7 +218,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 
-	// rf.persist()
+	rf.persist()
 	rf.delog("Handle AppendEntries: reply=%+v", reply)
 	rf.unlock("AppendEntries")
 }

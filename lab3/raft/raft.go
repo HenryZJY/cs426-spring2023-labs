@@ -25,8 +25,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"bytes"
 
-	//	"6.824/labgob"
+	"6.824/labgob"
 	"6.824/labrpc"
 
 	"fmt"
@@ -156,12 +157,14 @@ func (rf *Raft) changeRole(role Role) {
 func (rf *Raft) persist() {
 	// Your code here (3C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logEntries)
+	e.Encode(rf.commitIndex)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -173,17 +176,20 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 	// Your code here (3C).
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	
+	var term, votedFor, commitIndex int
+	var logEntries []LogEntry
+
+	if d.Decode(&term) != nil || d.Decode(&votedFor) != nil || d.Decode(&logEntries) != nil || d.Decode(&commitIndex) != nil {
+		log.Fatalf("decode error")
+	} else {
+		rf.currentTerm = term
+		rf.votedFor = votedFor
+		rf.logEntries = logEntries
+		rf.commitIndex = commitIndex
+	}
 }
 
 //
@@ -393,7 +399,7 @@ func (rf *Raft) startElection() {
     rf.delog("Changing to leader, Vote count: %d", voteCount)
 	if rf.currentTerm == args.Term && rf.role == Candidate && voteCount > len(rf.peers)/2 {
 		rf.changeRole(Leader)
-		rf.resetElectionTimer()
+		rf.resetElectionTimer() // Check this
 		rf.persist()
 	}
 	if rf.role == Leader {
