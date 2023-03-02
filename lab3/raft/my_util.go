@@ -164,10 +164,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.resetElectionTimer()
 
 	_, lastLogIndex := rf.getLastLogTermIndex()
-	if args.PrevLogIndex < rf.lastSnapshotIndex {
-		reply.Success = false
-		reply.NexIndex = rf.lastSnapshotIndex + 1
-	} else if args.PrevLogIndex > lastLogIndex{ // Missing logs in the middle
+	if args.PrevLogIndex > lastLogIndex{ // Missing logs in the middle
 		rf.delog("AppendEntries: Missing logs in the middle, args.PrevLogIndex=%v, lastLogIndex=%v", args.PrevLogIndex, lastLogIndex)
 		reply.Success = false
 		reply.NexIndex = lastLogIndex + 1 // TODO: check this
@@ -198,7 +195,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		idx := args.PrevLogIndex
 		argTerm := rf.logEntries[rf.getIdxByLogIndex(args.PrevLogIndex)].Term
-		for idx > rf.commitIndex && idx > rf.lastSnapshotIndex && rf.logEntries[rf.getIdxByLogIndex(idx)].Term == argTerm {
+		for idx > rf.commitIndex && idx > 0 && rf.logEntries[rf.getIdxByLogIndex(idx)].Term == argTerm {
 			idx--
 		}
 		reply.NexIndex = idx + 1
@@ -219,7 +216,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 func (rf *Raft) updateCommitIndex() {
 	rf.delog("Start in updateCommitIndex()")
 	updated := false
-	for i := rf.commitIndex + 1; i <= rf.lastSnapshotIndex + len(rf.logEntries); i++ {
+	for i := rf.commitIndex + 1; i <= len(rf.logEntries); i++ {
 		count := 0
 		for _, matchIndex := range rf.matchIndex {
 			if matchIndex >= i {
