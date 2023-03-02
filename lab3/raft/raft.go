@@ -413,13 +413,13 @@ func (rf *Raft) getLastLogTermIndex() (int, int) {
 		return 0, 0
 	}
 	lastLog := rf.logEntries[len(rf.logEntries)-1]
-	index := rf.lastSnapshotIndex + len(rf.logEntries) - 1
+	index := len(rf.logEntries) - 1
 	return lastLog.Term, index
 }
 
 
 func (rf *Raft) getIdxByLogIndex(logIndex int) int {
-	res := logIndex - rf.lastSnapshotIndex
+	res := logIndex
 	if res < 0 {
 		return -1
 	}
@@ -428,7 +428,7 @@ func (rf *Raft) getIdxByLogIndex(logIndex int) int {
 
 
 func (rf *Raft) getLogEntryByIndex(logIndex int) LogEntry {
-	return rf.logEntries[logIndex - rf.lastSnapshotIndex]
+	return rf.logEntries[logIndex]
 }
 
 //
