@@ -40,7 +40,7 @@ func (rf *Raft) makeAppendEntriesArgs(peeridx int) AppendEntriesArgs {
 	var prevLogIndex int
 	var prevLogTerm int
 
-	if nextIdx > lastLogIndex || nextIdx < rf.lastSnapshotIndex {
+	if nextIdx > lastLogIndex {
 		// No log to send
 		rf.delog("makeAppendEntriesArgs: no log to send")
 		prevLogIndex = lastLogIndex
@@ -48,11 +48,9 @@ func (rf *Raft) makeAppendEntriesArgs(peeridx int) AppendEntriesArgs {
 	} else {
 		logEntries = append(logEntries, rf.logEntries[rf.getIdxByLogIndex(nextIdx):]...)
 		prevLogIndex = nextIdx - 1
-		if prevLogIndex < rf.lastSnapshotIndex {
-			prevLogTerm = rf.lastSnapshotTerm
-		} else {
-			prevLogTerm = rf.getLogEntryByIndex(prevLogIndex).Term
-		}
+		
+		prevLogTerm = rf.getLogEntryByIndex(prevLogIndex).Term
+
 	}
 
 	args := AppendEntriesArgs{
@@ -137,16 +135,11 @@ func (rf *Raft) sendAppendEntries(peeridx int) {
 			return
 		} else { // reply False
 			if reply.NexIndex != 0 { // reply.NexIndex == 0 means the follower's log is empty
-				if rf.lastSnapshotIndex < reply.NexIndex {
+				if 0 < reply.NexIndex {
 					rf.nextIndex[peeridx] = reply.NexIndex
 					rf.unlock("sendAppendEntries2")
 					rf.delog("Retrying sendAppendEntries")
 					continue
-				} else {
-					// TODO: send rpc to install snapshot
-					rf.delog("sendAppendEntries: NEED TO SEND INSTALL SNAPSHOT")
-					rf.unlock("sendAppendEntries2")
-					return
 				}
 			} else {
 				// TODO: Figure out what to do
@@ -178,7 +171,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.delog("AppendEntries: Missing logs in the middle, args.PrevLogIndex=%v, lastLogIndex=%v", args.PrevLogIndex, lastLogIndex)
 		reply.Success = false
 		reply.NexIndex = lastLogIndex + 1 // TODO: check this
-	} else if args.PrevLogIndex == rf.lastSnapshotIndex { // Can fill the gap
+	} else if args.PrevLogIndex == 0 { // Can fill the gap
 		if rf.isArgsEntriesOutOfOrder(args) {
 			reply.Success = false
 			reply.NexIndex = 0
