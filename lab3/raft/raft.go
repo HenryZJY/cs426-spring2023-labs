@@ -82,8 +82,6 @@ type Raft struct {
 	role Role
 	votedFor int
 	logEntries []LogEntry
-	lastSnapshotIndex int
-	lastSnapshotTerm int
 
 	// Volatile state on all servers
 	commitIndex int
@@ -511,14 +509,7 @@ func (rf *Raft) applyLogs() {
 	defer rf.applyTimer.Reset(ApplyTime)
 	rf.lock("applyLogs-1")
 	var messages []ApplyMsg
-	if rf.lastSnapshotIndex > rf.lastApplied {
-		messages = make([]ApplyMsg, 0, 1)
-		messages = append(messages, ApplyMsg{
-			CommandValid: false,
-			Command:      "Snapshot",
-			CommandIndex: rf.lastSnapshotIndex,
-		})
-	} else if rf.lastApplied >= rf.commitIndex{
+	if rf.lastApplied >= rf.commitIndex{
 		// commit index is not updated yet ??
 		messages = make([]ApplyMsg, 0)
 	} else {
@@ -587,7 +578,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here (3A, 3B, 3C).
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.logEntries = make([]LogEntry, 1) // index 0 is snapshot
+	rf.logEntries = make([]LogEntry, 1) // index 0 is dummy
 	rf.role = Follower
 	rf.stopChannel = make(chan struct{})
 
