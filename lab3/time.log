@@ -6,10 +6,25 @@ Date  Started  Spent Work completed
 02/20 6:20 pm  2:00 Read lab specification
 02/21 7:00 pm  2:00 Read raft extended paper and make notes & mind map
 02/22 7:20 pm  4:00 Finished reading paper and started part A
-
+02/24 7:00 pm  2:00 Writing Part A
+02/25 2:00 pm  3:00 Finished writing Aart A and debugged for a while. 
+02/26 7:00 pm  3:00 Writing Part B
 02/27 9:00 pm   4:00 Writing Part B, debugging failure of agreement
-02/28 10:00 am   2:30 Wrote and debugged part B, but two tests still fail
+02/28 10:00 am  2:30 Wrote and debugged part B, but two tests still fail
 02/28 3:20 pm   1:00 Part B tests passed
 03/01 9:00 pm   2:30 Writing Part C
 03/02 10:00 pm  2:00 Writing tests and fixed bugs
 03/03 6:00 pm  2:00  Wrote more tests
+03/04 3:30 pm  1:15  Wrote discussion
+              ------
+              30:45 TOTAL time spent
+
+I discussed my solution with Xianglong Li. 
+
+I encountered failures in tests in both Part A and Part B. In Part A, I encountered
+ a problem of "at least one leader" during testing. I spent quite a lot amount of time 
+ in going through the debug logs that I created to find that I forgot to clear a channel
+ in the code. In Part B, I encountered a problem of "failure to reach agreement" during testing. 
+ I spent the most time debugging this issue. I had to go through three major bugs in my completed
+ to fix this issue. Again, it involves a lot of debugging logs to closely examine. The final bug
+ turns out to be a simple reversed condition in the code. :(
