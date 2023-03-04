@@ -142,7 +142,6 @@ func (rf *Raft) sendAppendEntries(peeridx int) {
 					continue
 				}
 			} else {
-				// TODO: Figure out what to do
 				rf.unlock("sendAppendEntries2")
 			}
 		}
@@ -167,7 +166,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.PrevLogIndex > lastLogIndex{ // Missing logs in the middle
 		rf.delog("AppendEntries: Missing logs in the middle, args.PrevLogIndex=%v, lastLogIndex=%v", args.PrevLogIndex, lastLogIndex)
 		reply.Success = false
-		reply.NexIndex = lastLogIndex + 1 // TODO: check this
+		reply.NexIndex = lastLogIndex + 1
 	} else if args.PrevLogIndex == 0 { // Can fill the gap
 		if rf.isArgsEntriesOutOfOrder(args) {
 			reply.Success = false

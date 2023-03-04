@@ -4,6 +4,7 @@ import (
 	"testing"
 	"math/rand"
 	"time"
+	"sync"
 )
 
 func TestElectionWithDisconnectAndCrash(t *testing.T) {
@@ -89,3 +90,48 @@ func TestTermChanges(t *testing.T) {
 	cfg.end()
 }
 
+func TestMoreUnreliable(t *testing.T) {
+	servers := 5
+	cfg := make_config(t, servers, true, false)
+	defer cfg.cleanup()
+
+	cfg.begin("Test (My test 4): More unreliable")
+
+	cfg.one(101, 5, true)
+	var wg sync.WaitGroup
+
+	for iters := 1; iters < 50; iters++ {
+		for j := 0; j < 4; j++ {
+			wg.Add(1)
+			go func(iters, j int) {
+				defer wg.Done()
+				cfg.one((100*iters)+j, 1, true)
+			}(iters, j)
+		}
+		cfg.one(iters, 1, true)
+	}
+	wg.Wait()
+	cfg.end()
+}
+
+func TestLeaderRejoin(t *testing.T) {
+	servers := 5
+	cfg := make_config(t, servers, false, false)
+	defer cfg.cleanup()
+
+	cfg.begin("Test (My test 5): Leader rejoins")
+
+	cfg.one(101, 5, true)
+	leader := cfg.checkOneLeader()
+	cfg.disconnect(leader)
+	cfg.one(102, 4, true)
+	cfg.rafts[leader].Start(103)
+	cfg.rafts[leader].Start(105)
+	cfg.checkOneLeader()
+	cfg.connect(leader)
+	cfg.rafts[leader].Start(106)
+	cfg.one(103, 5, true)
+	cfg.checkOneLeader()
+
+	cfg.end()
+}

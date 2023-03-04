@@ -130,7 +130,7 @@ func (rf *Raft) changeRole(role Role) {
 		_, lastLogIndex := rf.getLastLogTermIndex()
 		for i, _ := range rf.peers {
 			rf.nextIndex[i] = lastLogIndex + 1
-			// rf.matchIndex[i] = 0 // TODO: check if this is correct
+			// rf.matchIndex[i] = 0
 		}
 		rf.matchIndex[rf.me] = lastLogIndex
 		rf.resetElectionTimer()
@@ -501,7 +501,6 @@ func (rf *Raft) ticker() {
 		case <-rf.stopChannel:
 			return
 		}
-		// TODO: Check if we need to sleep here
 	}
 }
 
