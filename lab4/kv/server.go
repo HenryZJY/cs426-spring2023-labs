@@ -2,6 +2,7 @@ package kv
 
 import (
 	"context"
+	"time"
 
 	"cs426.yale.edu/lab4/kv/proto"
 	"github.com/sirupsen/logrus"
@@ -15,6 +16,14 @@ type KvServerImpl struct {
 	listener   *ShardMapListener
 	clientPool ClientPool
 	shutdown   chan struct{}
+	stateStorage map[string]State
+}
+
+type State struct {
+	value string
+	ttl   time.Duration
+	expired bool
+	// TODO: Lock?
 }
 
 func (server *KvServerImpl) handleShardMapUpdate() {
@@ -41,6 +50,7 @@ func MakeKvServer(nodeName string, shardMap *ShardMap, clientPool ClientPool) *K
 		listener:   &listener,
 		clientPool: clientPool,
 		shutdown:   make(chan struct{}),
+		stateStorage: make(map[string]State),
 	}
 	go server.shardMapListenLoop()
 	server.handleShardMapUpdate()
