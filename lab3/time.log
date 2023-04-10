@@ -16,15 +16,16 @@ Date  Started  Spent Work completed
 03/02 10:00 pm  2:00 Writing tests and fixed bugs
 03/03 6:00 pm  2:00  Wrote more tests
 03/04 3:30 pm  1:15  Wrote discussion
+03/07 4:40 pm  00:30 Finishing up and submit
               ------
-              30:45 TOTAL time spent
+              31:15 TOTAL time spent
 
 I discussed my solution with Xianglong Li. 
 
 I encountered failures in tests in both Part A and Part B. In Part A, I encountered
  a problem of "at least one leader" during testing. I spent quite a lot amount of time 
- in going through the debug logs that I created to find that I forgot to clear a channel
+ going through the debug logs that I created to find that I forgot to clear a channel
  in the code. In Part B, I encountered a problem of "failure to reach agreement" during testing. 
- I spent the most time debugging this issue. I had to go through three major bugs in my completed
+ I spent the most time debugging this issue. I had to go through three major bugs in my codes
  to fix this issue. Again, it involves a lot of debugging logs to closely examine. The final bug
  turns out to be a simple reversed condition in the code. :(
