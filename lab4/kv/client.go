@@ -2,6 +2,7 @@ package kv
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +17,7 @@ type Kv struct {
 
 	// Add any client-side state you want here
 	LBCounter uint32 // Round-Robin Load Balancer
-	lock      sync.RWMutex
+	lock      sync.Mutex
 }
 
 func MakeKv(shardMap *ShardMap, clientPool ClientPool) *Kv {
@@ -29,9 +30,7 @@ func MakeKv(shardMap *ShardMap, clientPool ClientPool) *Kv {
 }
 
 func (kv *Kv) get(ctx context.Context, key string, node string) (string, bool, error) {
-	kv.lock.RLock()
-	defer kv.lock.RUnlock()
-	defer atomic.AddUint32(&kv.LBCounter, 1)
+	// defer atomic.AddUint32(&kv.LBCounter, 1)
 	kvClient, err := kv.clientPool.GetClient(node)
 	if err != nil {
 		return "", false, err
@@ -49,12 +48,15 @@ func (kv *Kv) Get(ctx context.Context, key string) (string, bool, error) {
 	logrus.WithFields(
 		logrus.Fields{"key": key},
 	).Trace("client sending Get() request")
+	kv.lock.Lock()
+	defer kv.lock.Unlock()
 
 	shard := GetShardForKey(key, 1)
 	nodes := kv.shardMap.NodesForShard(shard)
-	var err error
+	err := fmt.Errorf("no node found")
 	for i := 0; i < len(nodes); i++ {
 		value, wasFound, e := kv.get(ctx, key, nodes[int(kv.LBCounter)%len(nodes)])
+		atomic.AddUint32(&kv.LBCounter, 1)
 		if e == nil {
 			return value, wasFound, nil
 		}
@@ -63,14 +65,12 @@ func (kv *Kv) Get(ctx context.Context, key string) (string, bool, error) {
 	return "", false, err
 }
 
-func (kv *Kv) set(ctx context.Context, key string, value string, node string) error {
-	kv.lock.Lock()
-	defer kv.lock.Unlock()
+func (kv *Kv) set(ctx context.Context, key string, value string, ttl time.Duration, node string) error {
 	kvClient, err := kv.clientPool.GetClient(node)
 	if err != nil {
 		return err
 	}
-	_, err = kvClient.Set(ctx, &kvpb.SetRequest{Key: key, Value: value})
+	_, err = kvClient.Set(ctx, &kvpb.SetRequest{Key: key, Value: value, TtlMs: ttl.Microseconds()})
 	return err
 }
 
@@ -78,15 +78,21 @@ func (kv *Kv) Set(ctx context.Context, key string, value string, ttl time.Durati
 	logrus.WithFields(
 		logrus.Fields{"key": key},
 	).Trace("client sending Set() request")
+	kv.lock.Lock()
+	defer kv.lock.Unlock()
 
 	shard := GetShardForKey(key, 1)
 	nodes := kv.shardMap.NodesForShard(shard)
 
-	err_ch := make(chan error)
+	if len(nodes) == 0 {
+		return fmt.Errorf("no node found")
+	}
+
+	err_ch := make(chan error, len(nodes))
 
 	for i := 0; i < len(nodes); i++ {
 		go func(node string) {
-			err_ch <- kv.set(ctx, key, value, node)
+			err_ch <- kv.set(ctx, key, value, ttl, node)
 		}(nodes[i])
 	}
 
@@ -101,8 +107,6 @@ func (kv *Kv) Set(ctx context.Context, key string, value string, ttl time.Durati
 }
 
 func (kv *Kv) delete(ctx context.Context, key string, node string) error {
-	kv.lock.Lock()
-	defer kv.lock.Unlock()
 	kvClient, err := kv.clientPool.GetClient(node)
 	if err != nil {
 		return err
@@ -115,11 +119,17 @@ func (kv *Kv) Delete(ctx context.Context, key string) error {
 	logrus.WithFields(
 		logrus.Fields{"key": key},
 	).Trace("client sending Delete() request")
+	kv.lock.Lock()
+	defer kv.lock.Unlock()
 
 	shard := GetShardForKey(key, 1)
 	nodes := kv.shardMap.NodesForShard(shard)
 
-	err_ch := make(chan error)
+	if len(nodes) == 0 {
+		return fmt.Errorf("no node found")
+	}
+
+	err_ch := make(chan error, len(nodes))
 
 	for i := 0; i < len(nodes); i++ {
 		go func(node string) {
