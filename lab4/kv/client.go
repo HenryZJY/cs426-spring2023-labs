@@ -2,13 +2,14 @@ package kv
 
 import (
 	"context"
-	"fmt"
+	"math/rand"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	kvpb "cs426.yale.edu/lab4/kv/proto"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Kv struct {
@@ -16,8 +17,7 @@ type Kv struct {
 	clientPool ClientPool
 
 	// Add any client-side state you want here
-	LBCounter uint32 // Round-Robin Load Balancer
-	lock      sync.Mutex
+	mu sync.Mutex
 }
 
 func MakeKv(shardMap *ShardMap, clientPool ClientPool) *Kv {
@@ -48,15 +48,18 @@ func (kv *Kv) Get(ctx context.Context, key string) (string, bool, error) {
 	logrus.WithFields(
 		logrus.Fields{"key": key},
 	).Trace("client sending Get() request")
-	kv.lock.Lock()
-	defer kv.lock.Unlock()
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 
-	shard := GetShardForKey(key, 1)
+	shard := GetShardForKey(key, kv.shardMap.NumShards())
 	nodes := kv.shardMap.NodesForShard(shard)
-	err := fmt.Errorf("no node found")
+	if len(nodes) == 0 {
+		return "", false, status.Error(codes.NotFound, "no node found")
+	}
+	var err error
+	index := rand.Intn(len(nodes))
 	for i := 0; i < len(nodes); i++ {
-		value, wasFound, e := kv.get(ctx, key, nodes[int(kv.LBCounter)%len(nodes)])
-		atomic.AddUint32(&kv.LBCounter, 1)
+		value, wasFound, e := kv.get(ctx, key, nodes[(index+i)%len(nodes)])
 		if e == nil {
 			return value, wasFound, nil
 		}
@@ -78,14 +81,14 @@ func (kv *Kv) Set(ctx context.Context, key string, value string, ttl time.Durati
 	logrus.WithFields(
 		logrus.Fields{"key": key},
 	).Trace("client sending Set() request")
-	kv.lock.Lock()
-	defer kv.lock.Unlock()
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 
-	shard := GetShardForKey(key, 1)
+	shard := GetShardForKey(key, kv.shardMap.NumShards())
 	nodes := kv.shardMap.NodesForShard(shard)
 
 	if len(nodes) == 0 {
-		return fmt.Errorf("no node found")
+		return status.Error(codes.NotFound, "no node found")
 	}
 
 	err_ch := make(chan error, len(nodes))
@@ -119,14 +122,14 @@ func (kv *Kv) Delete(ctx context.Context, key string) error {
 	logrus.WithFields(
 		logrus.Fields{"key": key},
 	).Trace("client sending Delete() request")
-	kv.lock.Lock()
-	defer kv.lock.Unlock()
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 
-	shard := GetShardForKey(key, 1)
+	shard := GetShardForKey(key, kv.shardMap.NumShards())
 	nodes := kv.shardMap.NodesForShard(shard)
 
 	if len(nodes) == 0 {
-		return fmt.Errorf("no node found")
+		return status.Error(codes.NotFound, "no node found")
 	}
 
 	err_ch := make(chan error, len(nodes))
