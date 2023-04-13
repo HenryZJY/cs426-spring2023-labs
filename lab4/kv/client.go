@@ -73,7 +73,7 @@ func (kv *Kv) set(ctx context.Context, key string, value string, ttl time.Durati
 	if err != nil {
 		return err
 	}
-	_, err = kvClient.Set(ctx, &kvpb.SetRequest{Key: key, Value: value, TtlMs: ttl.Microseconds()})
+	_, err = kvClient.Set(ctx, &kvpb.SetRequest{Key: key, Value: value, TtlMs: ttl.Milliseconds()})
 	return err
 }
 

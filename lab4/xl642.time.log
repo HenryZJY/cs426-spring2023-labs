@@ -4,8 +4,11 @@ ESTIMATE of time to complete assignment: 20 hours
 Date  Started  Spent Work completed
 ----  -------  ----  --------------
 4/10  5:00pm   3:00  read assignment description and started implementing client
+4/11  5:00pm   5:00  completed part B and debug for errors
+4/12  6:00pm   5:00  implemented part C and redesigned the data structure for
+                     storing key-value pairs
                ----
-               3:00  TOTAL time spent
+               13:00  TOTAL time spent
 
 I discussed my solution with: N/A.
 
