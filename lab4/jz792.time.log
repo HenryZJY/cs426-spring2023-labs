@@ -2,7 +2,15 @@ ESTIMATE of time to complete assignment: 25 hours
 
 Time     Time   Time
 Date  Started  Spent Work completed
-04/09   09:30pm 1:00pm Read assignment description and build mindmap
-04/10   07:30pm 2:00pm Finished Part A server.
+04/09   09:30pm 1:00 Read assignment description, built mindmap and start implementing server
+04/10   07:30pm 2:00 Finished Part A server.
+04/14   10:30pm 2:00 Wrote extra test cases and debugged nil pointer errors 
+                ----
+                5:00  TOTAL time spent
 
 I discussed the solution with Xianglong Li. 
+
+For me, the most confusing part of this assignment was writing extra test cases for both 
+the server and client. To mock the behavior of the server we need to first overwrite the server
+responses, but I did not realized that first. Hence, I encountered nil pointer errors and I spent
+quite some time debugging. 
