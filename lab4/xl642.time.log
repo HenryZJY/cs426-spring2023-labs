@@ -10,5 +10,16 @@ Date  Started  Spent Work completed
                ----
                13:00  TOTAL time spent
 
-I discussed my solution with: N/A.
+I discussed my solution with: Henry Zhang
 
+The biggest difficulty was to deal with a lock
+situation when the server is updating its 
+shard by requesting from another node while that
+node is also requesting from this server. After
+researching and testing, I realize that there
+was a lock in the updating process while the rpc
+call is being made, which conflicts with the lock
+in the GetShardContents function. I solved this
+by unlocking the mutex while waiting for rpc response
+and thereby allowing the server to process incoming
+shard copy requests.
